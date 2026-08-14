@@ -13,11 +13,25 @@ from schemas import (
 
 FRENCH_DAYS = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"]
 
+DAY_TRANSLATIONS = {
+    "monday": "Lundi", "mon": "Lundi", "lundi": "Lundi",
+    "tuesday": "Mardi", "tue": "Mardi", "mardi": "Mardi",
+    "wednesday": "Mercredi", "wed": "Mercredi", "mercredi": "Mercredi",
+    "thursday": "Jeudi", "thu": "Jeudi", "jeudi": "Jeudi",
+    "friday": "Vendredi", "fri": "Vendredi", "vendredi": "Vendredi",
+    "saturday": "Samedi", "sat": "Samedi", "samedi": "Samedi",
+    "sunday": "Dimanche", "sun": "Dimanche", "dimanche": "Dimanche",
+}
+
 
 def resolve_dispatch_day(target_day: Optional[str]) -> str:
     """Returns the cleaned target_day or the current server weekday in French if empty."""
     if target_day and target_day.strip():
-        return target_day.strip().capitalize()
+        cleaned = target_day.strip()
+        lower_cleaned = cleaned.lower()
+        if lower_cleaned in DAY_TRANSLATIONS:
+            return DAY_TRANSLATIONS[lower_cleaned]
+        return cleaned.capitalize()
     
     # Server weekday index (0 = Monday, 6 = Sunday)
     weekday_idx = datetime.now().weekday()
@@ -25,12 +39,23 @@ def resolve_dispatch_day(target_day: Optional[str]) -> str:
 
 
 def is_sector_visited(visiting_days_str: str, target_day: str) -> bool:
-    """Case-insensitive check if target_day is in visiting_days substring."""
+    """Case-insensitive check if target_day matches visiting_days string."""
     if not visiting_days_str or not target_day:
         return False
     target = target_day.strip().lower()
     days_list = [d.strip().lower() for d in visiting_days_str.split(",")]
-    return any(target == day or target in day for day in days_list)
+    
+    for day in days_list:
+        if target == day:
+            return True
+        # Check standard translations (e.g., 'mardi' in 'dimanche, mardi')
+        translated_target = DAY_TRANSLATIONS.get(target, target).lower()
+        translated_day = DAY_TRANSLATIONS.get(day, day).lower()
+        if translated_target == translated_day:
+            return True
+        if translated_target in translated_day or translated_day in translated_target:
+            return True
+    return False
 
 
 def run_optimization(
@@ -38,7 +63,7 @@ def run_optimization(
     last_run: Optional[Dict[str, Any]],
     records_purged: int
 ) -> OptimizationResponse:
-    """Executes the core inventory optimization algorithm."""
+    """Executes the core supply chain inventory optimization algorithm."""
     
     # 1. Resolve dispatch day
     dispatch_day = resolve_dispatch_day(request.target_day)
@@ -104,7 +129,6 @@ def run_optimization(
     if truck_capacity > 0:
         utilization_pct = round((total_shipped_units / truck_capacity) * 100.0, 2)
 
-
     truck_plan = TruckDispatchPlan(
         truck_capacity_units=round(truck_capacity, 2),
         total_needed_units=total_needed_units,
@@ -114,8 +138,6 @@ def run_optimization(
     )
 
     # 5. Central Warehouse Procurement Analysis
-    cw = request.central_warehouse
-    initial_stock = cw.current_stock
     remaining_stock = round(initial_stock - total_shipped_units, 2)
 
     # Total network consumption across all sectors in request

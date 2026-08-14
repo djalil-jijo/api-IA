@@ -1,11 +1,25 @@
 import json
 import sqlite3
 import os
+import tempfile
 from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, Any
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DEFAULT_DB_PATH = os.path.join(BASE_DIR, "inventory_optimization.db")
+# Determine appropriate path for SQLite database on Vercel or local environment
+def get_db_path() -> str:
+    env_db_path = os.getenv("DATABASE_PATH")
+    if env_db_path:
+        return env_db_path
+    
+    # Check if running in Linux/Vercel serverless environment with /tmp available
+    if os.path.exists("/tmp") and os.access("/tmp", os.W_OK):
+        return "/tmp/history.db"
+    
+    # Fallback for Windows or systems without direct /tmp write permissions
+    return os.path.join(tempfile.gettempdir(), "history.db")
+
+
+DEFAULT_DB_PATH = get_db_path()
 
 
 class StorageManager:
@@ -16,6 +30,11 @@ class StorageManager:
         self._init_db()
 
     def _get_connection(self) -> sqlite3.Connection:
+        # Ensure parent directory exists
+        parent_dir = os.path.dirname(self.db_path)
+        if parent_dir and not os.path.exists(parent_dir):
+            os.makedirs(parent_dir, exist_ok=True)
+            
         conn = sqlite3.connect(self.db_path, timeout=10.0)
         conn.row_factory = sqlite3.Row
         return conn
@@ -127,4 +146,3 @@ class StorageManager:
 
             conn.commit()
             return purged_count
-
