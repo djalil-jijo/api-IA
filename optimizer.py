@@ -91,8 +91,9 @@ def run_optimization(
     initial_stock = cw.current_stock
     truck_capacity = request.truck_capacity_units
 
-    # Capacity limit is restricted by both truck capacity and available warehouse stock
-    effective_capacity = min(truck_capacity, max(0.0, initial_stock))
+    # Capacity limit is restricted by truck capacity and available warehouse stock above safety stock (stsec)
+    available_warehouse_stock = max(0.0, initial_stock - cw.safety_stock)
+    effective_capacity = min(truck_capacity, available_warehouse_stock)
     is_constrained = total_needed_units > effective_capacity and total_needed_units > 0.0
     
     total_shipped_units = 0.0

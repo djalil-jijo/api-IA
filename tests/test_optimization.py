@@ -164,7 +164,7 @@ def test_reorder_point_and_purchase():
         "central_warehouse": {
             "product_id": "PROD-003",
             "product_name": "Huile 5L",
-            "current_stock": 100.0,  # Low stock
+            "current_stock": 170.0,  # 170 stock, 100 safety stock -> 70 available to ship
             "lead_time_days": 5.0,
             "safety_stock": 100.0
         },
@@ -185,15 +185,15 @@ def test_reorder_point_and_purchase():
 
     proc = data["central_procurement_plan"]
     # Total shipped = 70
-    # Remaining warehouse stock = 100 - 70 = 30
+    # Remaining warehouse stock = 170 - 70 = 100 (exactly at safety stock)
     # Total network consumption = 10
     # ROP = (10 * 5) + 100 = 150
-    # Remaining stock 30 < ROP 150 -> purchase_required = True
-    # Recommended purchase = 150 - 30 = 120
-    assert proc["remaining_warehouse_stock"] == 30.0
+    # Remaining stock 100 < ROP 150 -> purchase_required = True
+    # Recommended purchase = 150 - 100 = 50
+    assert proc["remaining_warehouse_stock"] == 100.0
     assert proc["reorder_point_rop"] == 150.0
     assert proc["purchase_required"] is True
-    assert proc["recommended_purchase_quantity"] == 120.0
+    assert proc["recommended_purchase_quantity"] == 50.0
 
 
 def test_historical_comparison_sequential_runs():
@@ -274,7 +274,7 @@ def test_data_retention_cleanup():
 
 
 def test_warehouse_stock_limitation():
-    """Test that dispatch is capped by available central warehouse stock even if truck capacity is higher."""
+    """Test that dispatch is capped by available central warehouse stock above safety stock (stsec)."""
     payload = {
         "target_day": "Mardi",
         "truck_capacity_units": 1000.0,  # Truck can carry 1000
@@ -282,9 +282,9 @@ def test_warehouse_stock_limitation():
         "central_warehouse": {
             "product_id": "PROD-LOW-WH",
             "product_name": "Sucre 1kg",
-            "current_stock": 100.0,  # Warehouse only has 100 units available!
+            "current_stock": 100.0,  # Warehouse has 100 units
             "lead_time_days": 2.0,
-            "safety_stock": 50.0
+            "safety_stock": 50.0   # Safety stock is 50 -> Available to ship is only 100 - 50 = 50 units!
         },
         "sectors": [
             {
@@ -301,8 +301,43 @@ def test_warehouse_stock_limitation():
     assert response.status_code == 200
     data = response.json()
 
-    # Total shipped must not exceed warehouse stock (100.0)
+    # Total shipped must not exceed warehouse stock minus safety stock (50.0)
     truck_plan = data["truck_dispatch_plan"]
-    assert truck_plan["total_shipped_units"] == 100.0
-    assert data["central_procurement_plan"]["remaining_warehouse_stock"] == 0.0
+    assert truck_plan["total_shipped_units"] == 50.0
+    # Remaining warehouse stock must be equal to safety stock (50.0), not 0.0
+    assert data["central_procurement_plan"]["remaining_warehouse_stock"] == 50.0
+
+
+def test_warehouse_stock_already_below_safety_stock():
+    """Test that if central warehouse is already at or below safety stock, 0 units are dispatched."""
+    payload = {
+        "target_day": "Mardi",
+        "truck_capacity_units": 500.0,
+        "target_days_to_cover": 7.0,
+        "central_warehouse": {
+            "product_id": "PROD-BELOW-SEC",
+            "product_name": "Farine 1kg",
+            "current_stock": 30.0,  # Current stock is 30, but safety stock is 50
+            "lead_time_days": 2.0,
+            "safety_stock": 50.0
+        },
+        "sectors": [
+            {
+                "sector_id": 1,
+                "sector_name": "Sector A",
+                "visiting_days": "Mardi",
+                "current_stock": 0.0,
+                "avg_daily_consumption": 10.0
+            }
+        ]
+    }
+
+    response = client.post("/api/v1/supply-chain/optimize", json=payload)
+    assert response.status_code == 200
+    data = response.json()
+
+    # 0 units shipped to preserve remaining stock
+    assert data["truck_dispatch_plan"]["total_shipped_units"] == 0.0
+    assert data["central_procurement_plan"]["remaining_warehouse_stock"] == 30.0
+    assert data["central_procurement_plan"]["purchase_required"] is True
 
