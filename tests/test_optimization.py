@@ -341,3 +341,42 @@ def test_warehouse_stock_already_below_safety_stock():
     assert data["central_procurement_plan"]["remaining_warehouse_stock"] == 30.0
     assert data["central_procurement_plan"]["purchase_required"] is True
 
+
+def test_single_sector_replenishment_with_safety_stock():
+    """Test sector truck loading proposing enough units to reach safety stock + coverage."""
+    # Simulating row from desktop app: CHEEZY 450G (Stock: 13, Safety: 90, avg_daily: 0.28, days: 7)
+    payload = {
+        "target_day": "Mardi",
+        "truck_capacity_units": 500.0,
+        "target_days_to_cover": 7.0,
+        "central_warehouse": {
+            "product_id": "445636",
+            "product_name": "CHEEZY 450 G",
+            "current_stock": 13.0,
+            "lead_time_days": 3.0,
+            "safety_stock": 90.0
+        },
+        "sectors": [
+            {
+                "sector_id": 1,
+                "sector_name": "EL BRACHEMA",
+                "visiting_days": "Mardi",
+                "current_stock": 13.0,
+                "avg_daily_consumption": 0.28,
+                "safety_stock": 90.0
+            }
+        ]
+    }
+
+    response = client.post("/api/v1/supply-chain/optimize", json=payload)
+    assert response.status_code == 200
+    data = response.json()
+
+    # Target = 90 + (0.28 * 7) = 91.96
+    # Needed = 91.96 - 13 = 78.96
+    truck_plan = data["truck_dispatch_plan"]
+    assert truck_plan["total_needed_units"] == 78.96
+    assert truck_plan["total_shipped_units"] == 78.96
+    assert truck_plan["sectors_allocated"][0]["stock_after_dispatch"] == 91.96
+
+

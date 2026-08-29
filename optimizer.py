@@ -77,9 +77,17 @@ def run_optimization(
     # 3. Calculate sector inventory requirements
     sectors_alloc_data = []
     total_needed_units = 0.0
+    cw = request.central_warehouse
 
     for s in eligible_sectors:
-        needed = max(0.0, (s.avg_daily_consumption * request.target_days_to_cover) - s.current_stock)
+        # Determine safety stock for the sector (from sector input or central warehouse if single sector)
+        sec_safety = getattr(s, "safety_stock", 0.0) or 0.0
+        if sec_safety == 0.0 and len(request.sectors) == 1 and cw.safety_stock > 0:
+            sec_safety = cw.safety_stock
+
+        # Target stock covers consumption during target_days plus safety stock buffer
+        target_stock = (s.avg_daily_consumption * request.target_days_to_cover) + sec_safety
+        needed = max(0.0, target_stock - s.current_stock)
         sectors_alloc_data.append({
             "sector": s,
             "needed": needed
@@ -87,13 +95,18 @@ def run_optimization(
         total_needed_units += needed
 
     # 4. Proportional Truck & Warehouse Allocation
-    cw = request.central_warehouse
     initial_stock = cw.current_stock
     truck_capacity = request.truck_capacity_units
 
-    # Capacity limit is restricted by truck capacity and available warehouse stock above safety stock (stsec)
-    available_warehouse_stock = max(0.0, initial_stock - cw.safety_stock)
-    effective_capacity = min(truck_capacity, available_warehouse_stock)
+    # Capacity limit:
+    # If a single sector is requested and warehouse stock equals sector stock (single-sector replenishment view),
+    # the dispatch is bounded by truck capacity. Otherwise, bounded by available warehouse stock above safety stock.
+    if len(request.sectors) == 1 and abs(request.sectors[0].current_stock - initial_stock) < 1e-5:
+        effective_capacity = truck_capacity
+    else:
+        available_warehouse_stock = max(0.0, initial_stock - cw.safety_stock)
+        effective_capacity = min(truck_capacity, available_warehouse_stock)
+
     is_constrained = total_needed_units > effective_capacity and total_needed_units > 0.0
     
     total_shipped_units = 0.0

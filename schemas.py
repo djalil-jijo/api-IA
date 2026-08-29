@@ -8,6 +8,7 @@ class SectorInput(BaseModel):
     visiting_days: str = Field(..., description="Comma-separated visiting days (e.g., 'Dimanche, Mardi')")
     current_stock: float = Field(..., ge=0.0, description="Current available stock in the sector")
     avg_daily_consumption: float = Field(..., ge=0.0, description="Average daily consumption rate for the sector")
+    safety_stock: float = Field(default=0.0, ge=0.0, description="Buffer/safety stock quantity required for the sector")
 
 
 class CentralWarehouseInput(BaseModel):
